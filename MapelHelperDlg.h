@@ -35,5 +35,12 @@ public:
 	afx_msg void OnBnClickedButton1();
 	afx_msg void OnEnChangeEdit1();
 	afx_msg void OnBnClickedButton2();
-//	float m_fDelay;
+	int m_nDelay;
+	int m_nRate;
+	int m_nBounce;
+	afx_msg void OnEnChangeEdit3();
+private:
+	int m_nBackupDelay;
+	int m_nBackupRate;
+	int m_nBackupBounce;
 };
