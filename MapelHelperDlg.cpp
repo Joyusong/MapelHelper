@@ -53,12 +53,12 @@ END_MESSAGE_MAP()
 
 CMapelHelperDlg::CMapelHelperDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_MAPELHELPER_DIALOG, pParent)
-	, m_nDelay(0)
-	, m_nRate(0)
-	, m_nBounce(0),
-	m_nBackupDelay(0),
-m_nBackupRate(0),
-m_nBackupBounce(0)
+	, m_editAccept(0)
+	, m_editRepeatDelay(0)
+	, m_editRepeatRate(0),
+	m_nBackupEditAccept(0),
+	m_nBackupEditRepeatDelay(0),
+	m_nBackupEditRepeatRate(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -67,9 +67,9 @@ void CMapelHelperDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	//  DDX_Text(pDX, IDC_EDIT1, m_fDelay);
-	DDX_Text(pDX, IDC_EDIT1, m_nDelay);
-	DDX_Text(pDX, IDC_EDIT2, m_nRate);
-	DDX_Text(pDX, IDC_EDIT3, m_nBounce);
+	DDX_Text(pDX, IDC_EDIT1, m_editAccept);
+	DDX_Text(pDX, IDC_EDIT2, m_editRepeatDelay);
+	DDX_Text(pDX, IDC_EDIT3, m_editRepeatRate);
 }
 
 BEGIN_MESSAGE_MAP(CMapelHelperDlg, CDialogEx)
@@ -88,72 +88,95 @@ END_MESSAGE_MAP()
 BOOL CMapelHelperDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
-	// 필터키 초기 세팅 확인하기. (txt로 저장)
-	//1 . 현재 실행 파일의 경로를 가져옵니다.
+
+	// 1. 현재 실행 파일의 경로를 가져옵니다.
 	TCHAR szPath[MAX_PATH] = { 0 };
 	GetModuleFileName(NULL, szPath, MAX_PATH);
+
 	// 2. 파일 이름을 제거하여 디렉토리 경로만 남깁니다.
 	PathRemoveFileSpec(szPath);
 	CString strFilePath;
 	strFilePath.Format(_T("%s\\setting.txt"), szPath);
-	//3. 세팅 파일 존재여부와 값 읽기
+
+	// 3. 세팅 파일 존재여부와 값 읽기
 	CStdioFile file;
 	if (file.Open(strFilePath, CFile::modeRead | CFile::typeText))
 	{
 		CString strLine;
-		if (file.ReadString(strLine)) m_nDelay = _ttoi(strLine);
-		if (file.ReadString(strLine)) m_nRate = _ttoi(strLine);
-		if (file.ReadString(strLine)) m_nBounce = _ttoi(strLine);
+		if (file.ReadString(strLine)) m_editAccept = _ttoi(strLine);
+		if (file.ReadString(strLine)) m_editRepeatDelay = _ttoi(strLine);
+		if (file.ReadString(strLine)) m_editRepeatRate = _ttoi(strLine);
 		file.Close();
 	}
-	else // 값 없을 시 
+	else // 값 없을 시 (최초 실행 시 PC 순정 값 백업)
 	{
-		FILTERKEYS fk;
-		fk.cbSize = sizeof(FILTERKEYS);
-		if (SystemParametersInfo(SPI_GETFILTERKEYS, sizeof(FILTERKEYS), &fk, 0))
-		{
-			// PC에 설정된 실제 값을 멤버 변수에 대입
-			m_nDelay = fk.iDelayMSec;
-			m_nRate = fk.iRepeatMSec;
-			m_nBounce = fk.iBounceMSec;
+		HKEY hKey;
+		LPCTSTR regPath = _T("Control Panel\\Accessibility\\Keyboard Response");
 
-		}
-		else
+		if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
 		{
-			// 만약 예외적으로 시스템 값을 읽지 못했을 때 오류 메시지와 프로그램 종료
-			AfxMessageBox(_T("레지스트리 읽기 오류"));
-			AfxGetMainWnd()->PostMessage(WM_CLOSE);
-			
+			TCHAR szAccept[64] = { 0 };
+			TCHAR szDelay[64] = { 0 };
+			TCHAR szRate[64] = { 0 };
+			DWORD dwSize = sizeof(szAccept);
+
+			// ① DelayBeforeAcceptance (Accept Delay) 읽기
+			if (RegQueryValueEx(hKey, _T("DelayBeforeAcceptance"), NULL, NULL, (BYTE*)szAccept, &dwSize) == ERROR_SUCCESS)
+				m_editAccept = _ttoi(szAccept);
+			else
+				m_editAccept = 0;
+
+			// ② AutoRepeatDelay (Repeat Delay) 읽기
+			dwSize = sizeof(szDelay);
+			if (RegQueryValueEx(hKey, _T("AutoRepeatDelay"), NULL, NULL, (BYTE*)szDelay, &dwSize) == ERROR_SUCCESS)
+				m_editRepeatDelay = _ttoi(szDelay);
+			else
+				m_editRepeatDelay = 0;
+
+			// ③ AutoRepeatRate (Repeat Rate) 읽기
+			dwSize = sizeof(szRate);
+			if (RegQueryValueEx(hKey, _T("AutoRepeatRate"), NULL, NULL, (BYTE*)szRate, &dwSize) == ERROR_SUCCESS)
+				m_editRepeatRate = _ttoi(szRate);
+			else
+				m_editRepeatRate = 0;
+
+			RegCloseKey(hKey);
 		}
-		// 4. 세팅 파일 생성
+
+		// 💡 [버그 예방 고정장치] 필터키가 꺼져있어 레지스트리 값이 0으로 스캔되었다면 윈도우 표준 기본값 세팅
+		if (m_editAccept == 0)      m_editAccept = 1000;
+		if (m_editRepeatDelay == 0) m_editRepeatDelay = 500;
+		if (m_editRepeatRate == 0)  m_editRepeatRate = 0;
+
+		// 4. 최초로 보정 완료된 순정 값을 세팅 파일(setting.txt)로 복사 및 저장
 		if (file.Open(strFilePath, CFile::modeCreate | CFile::modeWrite | CFile::typeText))
 		{
 			CString strData;
 
-			strData.Format(_T("%d\n"), m_nDelay);
+			strData.Format(_T("%d\n"), m_editAccept);
 			file.WriteString(strData);
 
-			strData.Format(_T("%d\n"), m_nRate);
+			strData.Format(_T("%d\n"), m_editRepeatDelay);
 			file.WriteString(strData);
 
-			strData.Format(_T("%d\n"), m_nBounce);
+			strData.Format(_T("%d\n"), m_editRepeatRate);
 			file.WriteString(strData);
 
 			file.Close();
 		}
-		AfxMessageBox(_T("초기 세팅 파일을 생성하였습니다. \n *setting.txt파일 변경 금지*"));
-		
-
+		AfxMessageBox(_T("현재 PC의 설정을 기반으로 초기 세팅 파일을 성공적으로 생성하였습니다. \n*setting.txt 파일 변경 금지*"));
 	}
-	m_nBackupDelay = m_nDelay;
-	m_nBackupRate = m_nRate;
-	m_nBackupBounce = m_nBounce;
+
+	// 5. 백업 변수에 최종 안전 수치 기록
+	m_nBackupEditAccept = m_editAccept;
+	m_nBackupEditRepeatDelay = m_editRepeatDelay;
+	m_nBackupEditRepeatRate = m_editRepeatRate;
+
+	// UI 에디트 텍스트 상자에 데이터 대입
 	UpdateData(FALSE);
 
 
 	// 시스템 메뉴에 "정보..." 메뉴 항목을 추가합니다.
-
-	// IDM_ABOUTBOX는 시스템 명령 범위에 있어야 합니다.
 	ASSERT((IDM_ABOUTBOX & 0xFFF0) == IDM_ABOUTBOX);
 	ASSERT(IDM_ABOUTBOX < 0xF000);
 
@@ -171,12 +194,9 @@ BOOL CMapelHelperDlg::OnInitDialog()
 		}
 	}
 
-	// 이 대화 상자의 아이콘을 설정합니다.  응용 프로그램의 주 창이 대화 상자가 아닐 경우에는
-	//  프레임워크가 이 작업을 자동으로 수행합니다.
+	// 이 대화 상자의 아이콘을 설정합니다.
 	SetIcon(m_hIcon, TRUE);			// 큰 아이콘을 설정합니다.
 	SetIcon(m_hIcon, FALSE);		// 작은 아이콘을 설정합니다.
-
-	// TODO: 여기에 추가 초기화 작업을 추가합니다.
 
 	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
@@ -233,31 +253,51 @@ HCURSOR CMapelHelperDlg::OnQueryDragIcon()
 
 void CMapelHelperDlg::OnBnClickedButton1()
 {
-	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
-	// 세팅 버튼 
 	if (!UpdateData(TRUE))
 	{
-		return; // 입력값에 문제가 있으면 중단
+		return; // 입력값 예외처리
 	}
+
+	// 1. 먼저 레지스트리에 세부 문자열 값을 확실하게 박아 넣습니다.
+	HKEY hKey;
+	LPCTSTR regPath = _T("Control Panel\\Accessibility\\Keyboard Response");
+
+	if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+	{
+		CString strAccept, strDelay, strRate;
+		strAccept.Format(_T("%d"), m_editAccept);
+		strDelay.Format(_T("%d"), m_editRepeatDelay);
+		strRate.Format(_T("%d"), m_editRepeatRate);
+		CString strFlags = _T("27"); // 온(On) 플래그
+
+		RegSetValueEx(hKey, _T("DelayBeforeAcceptance"), 0, REG_SZ, (BYTE*)(LPCTSTR)strAccept, (strAccept.GetLength() + 1) * sizeof(TCHAR));
+		RegSetValueEx(hKey, _T("AutoRepeatDelay"), 0, REG_SZ, (BYTE*)(LPCTSTR)strDelay, (strDelay.GetLength() + 1) * sizeof(TCHAR));
+		RegSetValueEx(hKey, _T("AutoRepeatRate"), 0, REG_SZ, (BYTE*)(LPCTSTR)strRate, (strRate.GetLength() + 1) * sizeof(TCHAR));
+		RegSetValueEx(hKey, _T("Flags"), 0, REG_SZ, (BYTE*)(LPCTSTR)strFlags, (strFlags.GetLength() + 1) * sizeof(TCHAR));
+
+		RegCloseKey(hKey);
+	}
+
+	// 2. 🔥 [핵심] 윈도우 커널에 FILTERKEYS 구조체를 직접 넘겨서 즉시 드라이버를 리로드시킵니다.
 	FILTERKEYS fk;
 	fk.cbSize = sizeof(FILTERKEYS);
-	fk.dwFlags = FKF_FILTERKEYSON | FKF_AVAILABLE | FKF_HOTKEYACTIVE | FKF_CONFIRMHOTKEY;
-	fk.iDelayMSec = m_nDelay;
-	fk.iRepeatMSec = m_nRate;
-	fk.iBounceMSec = m_nBounce;
+	// 필터키 On + 핫키 활성화 플래그 설정
+	fk.dwFlags = FKF_FILTERKEYSON | FKF_AVAILABLE | FKF_HOTKEYACTIVE;
+	fk.iDelayMSec = m_editAccept;
+	fk.iRepeatMSec = m_editRepeatDelay;
+	fk.iBounceMSec = m_editRepeatRate;
 	fk.iWaitMSec = 0;
 
+	// 구조체를 실어서 전달해야 시스템 속도가 즉시 변합니다.
 	if (SystemParametersInfo(SPI_SETFILTERKEYS, sizeof(FILTERKEYS), &fk, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE))
 	{
-		AfxMessageBox(_T("필터키 설정이 성공적으로 변경 및 적용되었습니다!"));
-
+		AfxMessageBox(_T("키보드 반응 속도 오버클럭이 실시간으로 즉시 적용되었습니다!"));
 	}
 	else
 	{
 		DWORD dwError = GetLastError();
 		CString strErr;
-		//AfxMessageBox(_T("윈도우 시스템에 설정을 반영하는데 실패했습니다. 권한을 확인하세요."));
-		strErr.Format(_T("시스템 반영 실패 (에러 코드: %d)\n구조체 값 설정을 확인하세요."), dwError);
+		strErr.Format(_T("시스템 드라이버 반영 실패 (에러 코드: %d)"), dwError);
 		AfxMessageBox(strErr);
 	}
 }
@@ -274,31 +314,41 @@ void CMapelHelperDlg::OnEnChangeEdit1()
 
 void CMapelHelperDlg::OnBnClickedButton2()
 {
-	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
-	//리셋 버튼 구현
-	m_nDelay = m_nBackupDelay;
-	m_nRate = m_nBackupRate;
-	m_nBounce = m_nBackupBounce;
-
-	// 2. 변수 값을 UI(텍스트 박스)에 강제로 갱신하여 보여줍니다.
+	// 1. UI 데이터를 초기 순정 값으로 원상복구
+	m_editAccept = m_nBackupEditAccept;
+	m_editRepeatDelay = m_nBackupEditRepeatDelay;
+	m_editRepeatRate = m_nBackupEditRepeatRate;
 	UpdateData(FALSE);
 
-	// 3. 사용자에게 안전하게 초기화되었음을 알리는 안내창 
+	// 2. 레지스트리 플래그를 오프 상태("126")로 되돌림
+	HKEY hKey;
+	LPCTSTR regPath = _T("Control Panel\\Accessibility\\Keyboard Response");
+
+	if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+	{
+		CString strFlags = _T("126");
+		RegSetValueEx(hKey, _T("Flags"), 0, REG_SZ, (BYTE*)(LPCTSTR)strFlags, (strFlags.GetLength() + 1) * sizeof(TCHAR));
+		RegCloseKey(hKey);
+	}
+
+	// 3. 🔥 [핵심] 윈도우 커널에 필터키 기능을 완전히 끄라(dwFlags = 0)고 명시적으로 구조체를 전달합니다.
 	FILTERKEYS fk;
 	fk.cbSize = sizeof(FILTERKEYS);
-	fk.dwFlags = 0;
+	fk.dwFlags = 0; // 마스터 오프(Off)
 	fk.iDelayMSec = 0;
 	fk.iRepeatMSec = 0;
 	fk.iBounceMSec = 0;
 	fk.iWaitMSec = 0;
+
 	if (SystemParametersInfo(SPI_SETFILTERKEYS, sizeof(FILTERKEYS), &fk, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE))
 	{
-		AfxMessageBox(_T("필터키 기능이 꺼졌으며, 컴퓨터가 일반 키보드 상태로 안전하게 복구되었습니다!"));
+		AfxMessageBox(_T("필터키 기능이 정상 종료되었으며, 순정 기본 키보드 상태로 복구되었습니다."));
 	}
 	else
 	{
-		AfxMessageBox(_T("시스템 복구에 실패했습니다. 관리자 권한을 확인하세요."));
+		AfxMessageBox(_T("시스템 원상복구 명령 전달 실패."));
 	}
+
 }
 
 void CMapelHelperDlg::OnEnChangeEdit3()

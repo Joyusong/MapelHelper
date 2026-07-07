@@ -35,12 +35,12 @@ public:
 	afx_msg void OnBnClickedButton1();
 	afx_msg void OnEnChangeEdit1();
 	afx_msg void OnBnClickedButton2();
-	int m_nDelay;
-	int m_nRate;
-	int m_nBounce;
+	int m_editAccept;
+	int m_editRepeatDelay;
+	int m_editRepeatRate;
 	afx_msg void OnEnChangeEdit3();
 private:
-	int m_nBackupDelay;
-	int m_nBackupRate;
-	int m_nBackupBounce;
+	int m_nBackupEditAccept;
+	int m_nBackupEditRepeatDelay;
+	int m_nBackupEditRepeatRate;
 };
