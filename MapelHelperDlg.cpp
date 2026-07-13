@@ -63,13 +63,13 @@ CMapelHelperDlg::CMapelHelperDlg(CWnd* pParent /*=nullptr*/)
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
 
-void CMapelHelperDlg::DoDataExchange(CDataExchange* pDX)
+inline void CMapelHelperDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
-	//  DDX_Text(pDX, IDC_EDIT1, m_fDelay);
 	DDX_Text(pDX, IDC_EDIT1, m_editAccept);
 	DDX_Text(pDX, IDC_EDIT2, m_editRepeatDelay);
 	DDX_Text(pDX, IDC_EDIT3, m_editRepeatRate);
+	DDX_Control(pDX, IDC_COMBO1, m_comboPreset);
 }
 
 BEGIN_MESSAGE_MAP(CMapelHelperDlg, CDialogEx)
@@ -80,6 +80,8 @@ BEGIN_MESSAGE_MAP(CMapelHelperDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_EDIT1, &CMapelHelperDlg::OnEnChangeEdit1)
 	ON_BN_CLICKED(IDC_BUTTON2, &CMapelHelperDlg::OnBnClickedButton2)
 	ON_EN_CHANGE(IDC_EDIT3, &CMapelHelperDlg::OnEnChangeEdit3)
+	ON_CBN_SELCHANGE(IDC_COMBO1, &CMapelHelperDlg::OnCbnSelchangeCombo1)
+	ON_EN_CHANGE(IDC_EDIT2, &CMapelHelperDlg::OnEnChangeEdit2)
 END_MESSAGE_MAP()
 
 
@@ -96,17 +98,19 @@ BOOL CMapelHelperDlg::OnInitDialog()
 	// 2. 파일 이름을 제거하여 디렉토리 경로만 남깁니다.
 	PathRemoveFileSpec(szPath);
 	CString strFilePath;
-	strFilePath.Format(_T("%s\\setting.txt"), szPath);
+	strFilePath.Format(_T("%s\\setting.csv"), szPath);
 
 	// 3. 세팅 파일 존재여부와 값 읽기
 	CStdioFile file;
-	if (file.Open(strFilePath, CFile::modeRead | CFile::typeText))
+	if (LoadPresetCSV(strFilePath))
 	{
-		CString strLine;
-		if (file.ReadString(strLine)) m_editAccept = _ttoi(strLine);
-		if (file.ReadString(strLine)) m_editRepeatDelay = _ttoi(strLine);
-		if (file.ReadString(strLine)) m_editRepeatRate = _ttoi(strLine);
-		file.Close();
+		if (!m_presets.empty())
+		{
+			// 첫 번째 프리셋 사용
+			m_editAccept = m_presets[0].accept;
+			m_editRepeatDelay = m_presets[0].repeatDelay;
+			m_editRepeatRate = m_presets[0].repeatRate;
+		}
 	}
 	else // 값 없을 시 (최초 실행 시 PC 순정 값 백업)
 	{
@@ -144,27 +148,33 @@ BOOL CMapelHelperDlg::OnInitDialog()
 		}
 
 		// 💡 [버그 예방 고정장치] 필터키가 꺼져있어 레지스트리 값이 0으로 스캔되었다면 윈도우 표준 기본값 세팅
-		if (m_editAccept == 0)      m_editAccept = 1000;
+		if (m_editAccept == 0) 	m_editAccept = 1000;
 		if (m_editRepeatDelay == 0) m_editRepeatDelay = 500;
 		if (m_editRepeatRate == 0)  m_editRepeatRate = 0;
 
 		// 4. 최초로 보정 완료된 순정 값을 세팅 파일(setting.txt)로 복사 및 저장
-		if (file.Open(strFilePath, CFile::modeCreate | CFile::modeWrite | CFile::typeText))
+		if (file.Open(strFilePath, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary))
 		{
-			CString strData;
+			wchar_t bom = 0xFEFF;
+			file.Write(&bom, sizeof(bom));
 
-			strData.Format(_T("%d\n"), m_editAccept);
-			file.WriteString(strData);
+			// 쉼표(,) 대신 탭(\t)을 사용합니다.
+			file.WriteString(_T("Name\tAcceptDelay\tRepeatDelay\tRepeatRate\r\n"));
 
-			strData.Format(_T("%d\n"), m_editRepeatDelay);
-			file.WriteString(strData);
+			CString str;
+			str.Format(
+				_T("기본값\t%d\t%d\t%d\r\n"), // 여기도 \t로 변경
+				m_editAccept,
+				m_editRepeatDelay,
+				m_editRepeatRate);
 
-			strData.Format(_T("%d\n"), m_editRepeatRate);
-			file.WriteString(strData);
-
+			file.WriteString(str);
+			file.Flush();
 			file.Close();
+			LoadPresetCSV(strFilePath); // 새로 생성된 파일을 다시 로드하여 콤보박스에 반영
 		}
-		AfxMessageBox(_T("현재 PC의 설정을 기반으로 초기 세팅 파일을 성공적으로 생성하였습니다. \n*setting.txt 파일 변경 금지*"));
+		
+		AfxMessageBox(_T("현재 PC 설정을 기반으로 setting.csv를 생성했습니다."));
 	}
 
 	// 5. 백업 변수에 최종 안전 수치 기록
@@ -302,15 +312,6 @@ void CMapelHelperDlg::OnBnClickedButton1()
 	}
 }
 
-void CMapelHelperDlg::OnEnChangeEdit1()
-{
-	// TODO:  RICHEDIT 컨트롤인 경우, 이 컨트롤은
-	// CDialogEx::OnInitDialog() 함수를 재지정 
-	//하고 마스크에 OR 연산하여 설정된 ENM_CHANGE 플래그를 지정하여 CRichEditCtrl().SetEventMask()를 호출하지 않으면
-	// ENM_CHANGE가 있으면 마스크에 ORed를 플래그합니다.
-
-	// TODO:  여기에 컨트롤 알림 처리기 코드를 추가합니다.
-}
 
 void CMapelHelperDlg::OnBnClickedButton2()
 {
@@ -359,4 +360,76 @@ void CMapelHelperDlg::OnEnChangeEdit3()
 	// ENM_CHANGE가 있으면 마스크에 ORed를 플래그합니다.
 
 	// TODO:  여기에 컨트롤 알림 처리기 코드를 추가합니다.
+}
+
+void CMapelHelperDlg::OnCbnSelchangeCombo1()
+{
+	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
+	int nSel = m_comboPreset.GetCurSel();
+	if (nSel == CB_ERR || nSel >= (int)m_presets.size()) {
+		return;
+	}
+	FilterPreset selectedData = m_presets[nSel];
+	m_editAccept = selectedData.accept;
+	m_editRepeatDelay = selectedData.repeatDelay;
+	m_editRepeatRate = selectedData.repeatRate;
+	UpdateData(FALSE);
+
+}
+bool CMapelHelperDlg::LoadPresetCSV(const CString& path)
+{
+	CStdioFile file;
+
+	if (!file.Open(path, CFile::modeRead | CFile::typeBinary))
+		return false;
+
+	CString line;
+	m_comboPreset.ResetContent();
+	// 첫 줄(Header) 건너뛰기
+	file.ReadString(line);
+
+	m_presets.clear();
+
+	while (file.ReadString(line))
+	{
+		FilterPreset preset;
+
+		int cur = 0;
+		CString token;
+
+		token = line.Tokenize(_T("\t"), cur);
+		preset.name = token;
+
+		token = line.Tokenize(_T("\t"), cur);
+		preset.accept = _ttoi(token);
+		 
+		token = line.Tokenize(_T("\t"), cur);
+		preset.repeatDelay = _ttoi(token);
+
+		token = line.Tokenize(_T("\t"), cur);
+		preset.repeatRate = _ttoi(token);
+
+		m_presets.push_back(preset);
+		m_comboPreset.AddString(preset.name);
+	}
+	file.Close();
+	if (!m_presets.empty()) {
+		m_comboPreset.SetCurSel(0);
+		OnCbnSelchangeCombo1();
+	}
+
+	return true;
+}
+void CMapelHelperDlg::OnEnChangeEdit2()
+{
+	// TODO:  RICHEDIT 컨트롤인 경우, 이 컨트롤은
+	// CDialogEx::OnInitDialog() 함수를 재지정 
+	//하고 마스크에 OR 연산하여 설정된 ENM_CHANGE 플래그를 지정하여 CRichEditCtrl().SetEventMask()를 호출하지 않으면
+	// ENM_CHANGE가 있으면 마스크에 ORed를 플래그합니다.
+
+	// TODO:  여기에 컨트롤 알림 처리기 코드를 추가합니다.
+}
+void CMapelHelperDlg::OnEnChangeEdit1()
+{
+	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
 }

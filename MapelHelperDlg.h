@@ -3,9 +3,19 @@
 //
 
 #pragma once
-
+#include <vector>
 
 // CMapelHelperDlg 대화 상자
+struct FilterPreset
+{
+	CString name;
+
+	int accept;
+
+	int repeatDelay;
+
+	int repeatRate;
+};
 class CMapelHelperDlg : public CDialogEx
 {
 // 생성입니다.
@@ -18,7 +28,7 @@ public:
 #endif
 
 	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 지원입니다.
+		virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 지원입니다.
 
 
 // 구현입니다.
@@ -43,4 +53,12 @@ private:
 	int m_nBackupEditAccept;
 	int m_nBackupEditRepeatDelay;
 	int m_nBackupEditRepeatRate;
+	std::vector<FilterPreset> m_presets;
+	CComboBox m_comboPreset;
+	bool LoadPresetCSV(const CString& path);
+
+public:
+	afx_msg void OnLbnSelchangeList1();
+	afx_msg void OnCbnSelchangeCombo1();
+	afx_msg void OnEnChangeEdit2();
 };
